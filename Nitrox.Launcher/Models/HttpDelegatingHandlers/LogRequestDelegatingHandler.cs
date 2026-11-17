@@ -31,8 +31,26 @@ internal sealed class LogRequestDelegatingHandler : DelegatingHandler
         }
         catch (Exception ex)
         {
-            LauncherNotifier.Error(NetHelper.HasInternetConnectivity() ? ex.Message : "No internet connection available");
+            // Network problems (offline, DNS failure, ...) are common and must not look like launcher errors.
+            bool hasInternet = HasInternetConnectivitySafely();
+            Log.Warn($"{request.Method} request to {url} failed: {ex.Message}");
+            if (hasInternet && ex is not HttpRequestException)
+            {
+                LauncherNotifier.Error(ex.Message);
+            }
             throw;
+        }
+
+        static bool HasInternetConnectivitySafely()
+        {
+            try
+            {
+                return NetHelper.HasInternetConnectivity();
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         static void LogResponseStatus(HttpResponseMessage response, string url)

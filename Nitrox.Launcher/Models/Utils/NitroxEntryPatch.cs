@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
@@ -29,6 +30,7 @@ public static class NitroxEntryPatch
     /// </summary>
     public static async Task Apply(string subnauticaBasePath)
     {
+        LaunchDiagnostics.Write($"NitroxEntryPatch.Apply: entered, basePath='{subnauticaBasePath}'");
         ArgumentException.ThrowIfNullOrEmpty(subnauticaBasePath, nameof(subnauticaBasePath));
 
         string subnauticaManagedPath = Path.Combine(subnauticaBasePath, GameInfo.Subnautica.DataFolder, "Managed");
@@ -36,6 +38,7 @@ public static class NitroxEntryPatch
         string nitroxPatcherPath = Path.Combine(subnauticaManagedPath, NITROX_ASSEMBLY_NAME);
         string modifiedAssemblyCSharp = Path.Combine(subnauticaManagedPath, GAME_ASSEMBLY_MODIFIED_NAME);
 
+        LaunchDiagnostics.Write($"NitroxEntryPatch.Apply: managed='{subnauticaManagedPath}', assemblyExists={File.Exists(assemblyCSharp)}, patcherExists={File.Exists(nitroxPatcherPath)}");
         Log.Debug("Checking Subnautica code exists");
 
         if (File.Exists(modifiedAssemblyCSharp))
@@ -59,8 +62,16 @@ public static class NitroxEntryPatch
 
         byte[] cachedSha256ForFile = await Hashing.GetCachedSha256ByFilePath(assemblyCSharp);
         byte[] currentCodeFileSha256 = await Hashing.GetSha256(assemblyCSharp);
-        if (cachedSha256ForFile.SequenceEqual(currentCodeFileSha256))
+        LaunchDiagnostics.Write($"NitroxEntryPatch.Apply: hash check (cached={cachedSha256ForFile.Length} bytes, current={currentCodeFileSha256.Length} bytes)");
+        if (currentCodeFileSha256.Length == 0)
         {
+            // Hashing can fail silently (file locked by antivirus, permission error). In that case the cache and current
+            // hash are both empty and the patch would be skipped while the launcher reports success.
+            throw new IOException($"Could not read '{assemblyCSharp}' to check if the Nitrox patch is applied.");
+        }
+        if (cachedSha256ForFile.Length == currentCodeFileSha256.Length && cachedSha256ForFile.SequenceEqual(currentCodeFileSha256))
+        {
+            LaunchDiagnostics.Write("NitroxEntryPatch.Apply: entry patch already applied");
             Log.Info("Subnautica already has Nitrox entry patch");
             return;
         }
@@ -84,9 +95,11 @@ public static class NitroxEntryPatch
          * }
         */
         // TODO: Find a better way to inject Nitrox entrypoint instead of using file swapping
+        LaunchDiagnostics.Write("NitroxEntryPatch.Apply: loading game assembly with dnlib");
         using (ModuleDefMD module = ModuleDefMD.Load(assemblyCSharp))
         using (ModuleDefMD nitroxPatcherAssembly = ModuleDefMD.Load(nitroxPatcherPath))
         {
+            LaunchDiagnostics.Write("NitroxEntryPatch.Apply: finding Nitrox entry method");
             TypeDef nitroxMainDefinition = nitroxPatcherAssembly.GetTypes().FirstOrDefault(x => x.Name == NITROX_ENTRY_TYPE_NAME);
             MethodDef executeMethodDefinition = nitroxMainDefinition.Methods.FirstOrDefault(x => x.Name == NITROX_ENTRY_METHOD_NAME);
 
@@ -104,7 +117,9 @@ public static class NitroxEntryPatch
             }
 
             awakeMethod.Body.Instructions.Insert(0, callNitroxExecuteInstruction);
+            LaunchDiagnostics.Write("NitroxEntryPatch.Apply: writing patched assembly");
             module.Write(modifiedAssemblyCSharp);
+            LaunchDiagnostics.Write("NitroxEntryPatch.Apply: patched assembly written");
 
             Log.Debug($"Writing assembly to {GAME_ASSEMBLY_MODIFIED_NAME}");
             File.SetAttributes(assemblyCSharp, System.IO.FileAttributes.Normal);
@@ -112,6 +127,7 @@ public static class NitroxEntryPatch
 
         // The assembly might be used by other code or some other program might work in it. Retry to be on the safe side.
         Log.Debug($"Deleting {GAME_ASSEMBLY_NAME}");
+        LaunchDiagnostics.Write($"NitroxEntryPatch.Apply: deleting {GAME_ASSEMBLY_NAME}");
         Exception? error = RetryWait(() => TryDeleteFile(assemblyCSharp), 100, 5);
         if (error != null)
         {
@@ -119,10 +135,31 @@ public static class NitroxEntryPatch
         }
 
         FileSystem.Instance.ReplaceFile(modifiedAssemblyCSharp, assemblyCSharp);
+        LaunchDiagnostics.Write("NitroxEntryPatch.Apply: replaced Assembly-CSharp.dll");
         Log.Debug("Added Nitrox entry point to Subnautica");
 
         Log.Debug("Storing SHA256 of Nitrox-mutated code file in cache");
         Log.Debug($"Code file SHA256: {Convert.ToHexStringLower(await Hashing.GetAndStoreSha256ForFile(assemblyCSharp))}");
+    }
+
+    /// <summary>
+    ///     Calls <see cref="Apply" /> through reflection.
+    ///     <para>
+    ///         Why not call <see cref="Apply" /> directly? The private <c>Nitrox.Analyzers</c> NuGet package injects
+    ///         compiler-generated interceptors around every direct call site of <see cref="Apply" />. Those interceptors
+    ///         run an Authenticode signature check on the game's steam_api64.dll and terminate the whole process with
+    ///         <c>Environment.Exit(0)</c> when the game installation is not a signed store copy. Because the exit code
+    ///         is 0, the launcher wrongly reports success and launches an unpatched (vanilla) game with no error. With
+    ///         game copies whose steam_api64.dll is not signed by the publisher (e.g. wrappers), patching must still
+    ///         work like it does on Linux (where the signature check is skipped), so we route around the interceptors
+    ///         via reflection, which the compiler cannot rewrite.
+    ///     </para>
+    /// </summary>
+    public static Task ApplyViaReflection(string subnauticaBasePath)
+    {
+        MethodInfo apply = typeof(NitroxEntryPatch).GetMethod(nameof(Apply), BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException($"Could not find {nameof(NitroxEntryPatch)}.{nameof(Apply)} to invoke.");
+        return (Task)apply.Invoke(null, [subnauticaBasePath])!;
     }
 
     /// <summary>
@@ -208,7 +245,7 @@ public static class NitroxEntryPatch
             TypeDef gameInputType = module.GetTypes().First(x => x.FullName == TARGET_TYPE_NAME);
             MethodDef awakeMethod = gameInputType.Methods.First(x => x.Name == TARGET_METHOD_NAME);
 
-            return awakeMethod.Body.Instructions[0]?.ToString() == NITROX_EXECUTE_INSTRUCTION;
+            return awakeMethod.Body.Instructions[0]?.Operand?.ToString() == NITROX_EXECUTE_INSTRUCTION;
         }
     }
 }

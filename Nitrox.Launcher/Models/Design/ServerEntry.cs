@@ -327,6 +327,23 @@ internal sealed partial class ServerEntry : ObservableObject
         {
             // ignored
         }
+
+        // Force shutdown if the server did not respond to the close command in time.
+        // Without this, the launcher may report the stop as successful while the server process is still alive and holding the network port.
+        if (ProcessEx.ProcessExists(GetServerProcessName(), ex => ex.Id == LastProcessId))
+        {
+            Log.Warn($"Server '{Name}' did not respond to close command. Forcing shutdown.");
+            try
+            {
+                System.Diagnostics.Process forceKillProcess = System.Diagnostics.Process.GetProcessById(LastProcessId);
+                forceKillProcess.Kill();
+                forceKillProcess.Dispose();
+            }
+            catch (Exception)
+            {
+                // ignored - the process might have exited in the meantime.
+            }
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanOpenSaveFolder))]

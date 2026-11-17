@@ -74,6 +74,8 @@ internal class App : Application
     {
         CultureManager.ConfigureCultureInfo();
         Log.Setup();
+        // Register before anything else so background-thread crashes are recorded instead of silently killing the process.
+        LaunchDiagnostics.SetupGlobalHandlers();
         Log.Info($@"Starting Nitrox Launcher V{NitroxEnvironment.Version}+{NitroxEnvironment.GitHash} with args ""{string.Join(" ", NitroxEnvironment.CommandLineArgs)}"" built on {NitroxEnvironment.BuildDate:F}");
 
         // Handle command line arguments.
@@ -176,11 +178,27 @@ internal class App : Application
 
         Dispatcher.UIThread.UnhandledException += (_, eventArgs) => HandleUnhandledException(eventArgs.Exception);
         AppWindow = StartupWindowFactory();
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktopLifetime)
+        {
+            desktopLifetime.Exit += (_, eventArgs) =>
+            {
+                LaunchDiagnostics.Write($"Avalonia desktop lifetime Exit (exitCode={eventArgs.ApplicationExitCode})");
+            };
+            desktopLifetime.ShutdownRequested += (_, eventArgs) =>
+            {
+                LaunchDiagnostics.Write($"Avalonia desktop lifetime ShutdownRequested (cancel={eventArgs.Cancel})");
+            };
+            if (desktopLifetime.MainWindow is { } window)
+            {
+                window.Closed += (_, _) => LaunchDiagnostics.Write("Main window closed (launcher is shutting down)");
+            }
+        }
         base.OnFrameworkInitializationCompleted();
     }
 
     internal static void HandleUnhandledException(Exception ex)
     {
+        LaunchDiagnostics.Write("UNHANDLED UI THREAD EXCEPTION", ex);
         if (isCrashReport)
         {
             Log.Error(ex, "Error while trying to show crash report");

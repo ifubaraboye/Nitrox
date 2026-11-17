@@ -274,6 +274,4 @@ public abstract class FileSystem
     }
 
     public abstract bool SetFullAccessToCurrentUser(string directory);
-
-    public virtual bool IsTrustedFile(string file) => true;
 }

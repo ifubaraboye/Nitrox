@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Svg.Skia;
+using Nitrox.Launcher.Models.Utils;
 
 namespace Nitrox.Launcher;
 
@@ -20,7 +21,53 @@ internal static class Program
         AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolver.Handler;
         AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += AssemblyResolver.Handler;
 
+        if (TryRunPatchGame(args))
+        {
+            return;
+        }
+
         LoadAvalonia(args);
+    }
+
+    /// <summary>
+    ///     Runs the Subnautica entry patch in a dedicated child process. The patch step is isolated because an abrupt
+    ///     launcher shutdown during patching (e.g. a forced Environment.Exit from an unrelated background service) would
+    ///     otherwise kill the whole launcher without any visible error. As a child process, the exit code can be reported.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool TryRunPatchGame(string[] args)
+    {
+        if (args.Length < 2 || !string.Equals(args[0], "patch-game", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        int exitCode = 3;
+        try
+        {
+            LaunchDiagnostics.SetupGlobalHandlers();
+            LaunchDiagnostics.Write($"[patch-game] child started, gamePath='{args[1]}'");
+            NitroxEntryPatch.ApplyViaReflection(args[1]).GetAwaiter().GetResult();
+            LaunchDiagnostics.Write("[patch-game] NitroxEntryPatch.Apply finished without error");
+            if (NitroxEntryPatch.IsPatchApplied(args[1]))
+            {
+                LaunchDiagnostics.Write("[patch-game] verified: Assembly-CSharp.dll contains the Nitrox entry call");
+                exitCode = 0;
+            }
+            else
+            {
+                LaunchDiagnostics.Write("[patch-game] verification FAILED: Assembly-CSharp.dll does not contain the Nitrox entry call");
+                exitCode = 4;
+            }
+        }
+        catch (Exception ex)
+        {
+            LaunchDiagnostics.Write("[patch-game] NitroxEntryPatch.Apply threw an exception", ex);
+        }
+
+        LaunchDiagnostics.Write($"[patch-game] exiting with code {exitCode} (0x{exitCode:X8})");
+        Environment.Exit(exitCode);
+        return true;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

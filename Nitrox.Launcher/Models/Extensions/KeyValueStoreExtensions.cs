@@ -19,5 +19,13 @@ public static class KeyValueStoreExtensions
         public void SetBigPictureMode(bool value) => self.SetValue("UseBigPictureMode", value);
         public bool GetIsDiscordEnabled(bool defaultValue = false) => self.GetValue(DiscordConstants.ENABLE_CONFIG_KEY, defaultValue);
         public void SetIsDiscordEnabled(bool value) => self.SetValue(DiscordConstants.ENABLE_CONFIG_KEY, value);
+        public bool GetLaunchDirectlyWithoutSteam(bool defaultValue = true) => self.GetValue("LaunchDirectlyWithoutSteam", defaultValue);
+        public void SetLaunchDirectlyWithoutSteam(bool value) => self.SetValue("LaunchDirectlyWithoutSteam", value);
+        public bool GetUseWine(bool defaultValue = true) => self.GetValue("UseWineOnLinux", defaultValue);
+        public void SetUseWine(bool value) => self.SetValue("UseWineOnLinux", value);
+        public string GetWineExecutable() => self.GetValue("WineExecutable", "");
+        public void SetWineExecutable(string value) => self.SetValue("WineExecutable", value ?? "");
+        public string GetWinePrefix() => self.GetValue("WinePrefix", "");
+        public void SetWinePrefix(string value) => self.SetValue("WinePrefix", value ?? "");
     }
 }

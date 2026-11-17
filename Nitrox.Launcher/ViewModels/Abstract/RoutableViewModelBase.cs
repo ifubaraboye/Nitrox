@@ -1,5 +1,6 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Nitrox.Launcher.Models;
 
@@ -12,7 +13,7 @@ internal abstract class RoutableViewModelBase : ViewModelBase
     /// </summary>
     protected void ChangeView<TViewModel>(TViewModel viewModel) where TViewModel : RoutableViewModelBase
     {
-        WeakReferenceMessenger.Default.Send(new ShowViewMessage
+        SendOnUiThread(new ShowViewMessage
         {
             ViewModel = viewModel
         });
@@ -20,12 +21,25 @@ internal abstract class RoutableViewModelBase : ViewModelBase
 
     protected void ChangeViewToPrevious()
     {
-        WeakReferenceMessenger.Default.Send(new ShowPreviousViewMessage());
+        SendOnUiThread(new ShowPreviousViewMessage());
     }
 
     protected void ChangeViewToPrevious<T>() where T : RoutableViewModelBase
     {
-        WeakReferenceMessenger.Default.Send(new ShowPreviousViewMessage(typeof(T)));
+        SendOnUiThread(new ShowPreviousViewMessage(typeof(T)));
+    }
+
+    private static void SendOnUiThread<TMessage>(TMessage message) where TMessage : class
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            WeakReferenceMessenger.Default.Send(message);
+        }
+        else
+        {
+            // View navigation touches Avalonia controls and must always happen on the UI thread.
+            Dispatcher.UIThread.Post(() => WeakReferenceMessenger.Default.Send(message));
+        }
     }
 
     /// <summary>

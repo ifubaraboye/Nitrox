@@ -13,6 +13,7 @@ internal static class CrashReporter
 
     public static void ReportAndExit(Exception ex)
     {
+        LaunchDiagnostics.Write("CrashReporter.ReportAndExit", ex);
         Log.Error(ex, "!!!Nitrox Launcher Crash!!!");
 
         try
@@ -21,7 +22,9 @@ internal static class CrashReporter
             if (!string.IsNullOrWhiteSpace(crashPath))
             {
                 Directory.CreateDirectory(crashPath);
-                File.WriteAllText(GetNewCrashFilePath(crashPath), ex.ToString());
+                string crashFile = GetNewCrashFilePath(crashPath);
+                File.WriteAllText(crashFile, ex.ToString());
+                LaunchDiagnostics.Write($"Crash file written to '{crashFile}'");
                 ProcessEx.StartSelf("--crash-report");
             }
             else
@@ -32,9 +35,11 @@ internal static class CrashReporter
         catch (Exception exception)
         {
             Log.Error(exception);
+            LaunchDiagnostics.Write("Failed to write crash file", exception);
         }
         finally
         {
+            LaunchDiagnostics.Write("CrashReporter: exiting with code 1");
             Environment.Exit(1);
         }
 

@@ -94,6 +94,4 @@ internal class WinFileSystem : FileSystem
             return false;
         }
     }
-
-    public override bool IsTrustedFile(string file) => Win32Native.IsTrusted(file);
 }

@@ -63,6 +63,20 @@ internal partial class OptionsViewModel(IKeyValueStore keyValueStore, StorageSer
     [ObservableProperty]
     public partial bool IsInReleaseMode { get; set; }
 
+    [ObservableProperty]
+    public partial bool LaunchDirectlyWithoutSteam { get; set; }
+
+    [ObservableProperty]
+    public partial bool UseWine { get; set; }
+
+    [ObservableProperty]
+    public partial string WineExecutable { get; set; }
+
+    [ObservableProperty]
+    public partial string WinePrefix { get; set; }
+
+    public bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+
     private static string DefaultLaunchArg => "-vrmode none";
     private bool isResettingArgs;
 
@@ -79,6 +93,10 @@ internal partial class OptionsViewModel(IKeyValueStore keyValueStore, StorageSer
         UseBigPictureMode = keyValueStore.GetUseBigPictureMode();
         IsDiscordEnabled = keyValueStore.GetIsDiscordEnabled();
         IsInReleaseMode = NitroxEnvironment.IsReleaseMode;
+        LaunchDirectlyWithoutSteam = keyValueStore.GetLaunchDirectlyWithoutSteam(defaultValue: true);
+        UseWine = keyValueStore.GetUseWine(defaultValue: IsLinux);
+        WineExecutable = keyValueStore.GetWineExecutable();
+        WinePrefix = keyValueStore.GetWinePrefix();
         await Task.Run(() => SetTargetedSubnauticaPath(SelectedGame.PathToGame), cancellationToken).ContinueWithHandleError(ex => LauncherNotifier.Error(ex.Message));
     }
 
@@ -88,8 +106,6 @@ internal partial class OptionsViewModel(IKeyValueStore keyValueStore, StorageSer
         {
             return;
         }
-
-        PirateDetection.TriggerOnDirectory(path);
 
         if (!FileSystem.Instance.IsWritable(path))
         {
@@ -132,6 +148,19 @@ internal partial class OptionsViewModel(IKeyValueStore keyValueStore, StorageSer
             SelectedGame = new() { PathToGame = NitroxUser.GamePath, Platform = NitroxUser.GamePlatform?.Platform ?? Platform.NONE };
             LauncherNotifier.Success("Applied changes");
         }
+    }
+
+    [RelayCommand]
+    private async Task SetWinePrefix()
+    {
+        string selectedDirectory = await storageService.OpenFolderPickerAsync("Select Wine prefix (the folder that contains drive_c)", WinePrefix);
+        if (selectedDirectory == "")
+        {
+            return;
+        }
+
+        WinePrefix = selectedDirectory;
+        LauncherNotifier.Success("Wine prefix applied");
     }
 
     [RelayCommand]
@@ -211,5 +240,25 @@ internal partial class OptionsViewModel(IKeyValueStore keyValueStore, StorageSer
     partial void OnIsDiscordEnabledChanged(bool value)
     {
         keyValueStore.SetIsDiscordEnabled(value);
+    }
+
+    partial void OnLaunchDirectlyWithoutSteamChanged(bool value)
+    {
+        keyValueStore.SetLaunchDirectlyWithoutSteam(value);
+    }
+
+    partial void OnUseWineChanged(bool value)
+    {
+        keyValueStore.SetUseWine(value);
+    }
+
+    partial void OnWineExecutableChanged(string value)
+    {
+        keyValueStore.SetWineExecutable(value);
+    }
+
+    partial void OnWinePrefixChanged(string value)
+    {
+        keyValueStore.SetWinePrefix(value);
     }
 }
